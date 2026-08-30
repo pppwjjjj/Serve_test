@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 测试与报告
+.pytest_cache/
+allure-results/
+allure-report/
+.coverage
+htmlcov/
+
+# 环境配置（.env.example 保留提交）
+.env
+!.env.example
+
+# IDE
+.idea/
+.vscode/*.log
+
+# 日志
+*.log

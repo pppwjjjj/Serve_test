@@ -1,0 +1,16 @@
+# ServeRest 本地测试环境编排
+# paulogoncalvesbh/serverest 镜像自带 MongoDB 与预置数据，单服务即可；
+# 重建容器（docker compose down && docker compose up -d）即恢复初始数据。
+services:
+  serverest:
+    image: paulogoncalvesbh/serverest:latest
+    container_name: serverest_api
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/status').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
