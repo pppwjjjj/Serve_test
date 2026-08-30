@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import requests
 
-
+##异常标签，通过将状态码映射成相应的异常标签，方便测试用例进行断言使用
 class APIError(Exception):
     """所有 API 异常的统一基类，携带响应对象与状态码。"""
 
