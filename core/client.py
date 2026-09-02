@@ -73,6 +73,16 @@ class Client:
                 continue  # 否则进入下一次尝试
             return raise_for_api_error(response)
 
+    @property
+    def token(self) -> str | None:
+        """当前注入的 token 本体（只读）。
+
+        set_token() 会把 "Bearer " 前缀剥离后保存，
+        这里返回的就是剥离后的 token 本体，未注入时返回 None。
+        token 只允许读取，注入与替换统一走 set_token()。
+        """
+        return self._token
+
     def set_token(self, token: str) -> None:
         """注入登录接口获取的动态 token，后续请求自动携带。
 
