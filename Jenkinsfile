@@ -1,19 +1,19 @@
-// Jenkinsfile —— ServeRest 自动化测试流水线（声明式，Windows agent 版）
+// ServeRest 自动化测试流水线
 //
-// 流程：检出代码 → 启动 ServeRest → 测试容器跑全部用例（冒烟 → 正向 → 反向，
-// 顺序由 pytest.ini 的 testpaths 保证）→ pytest-html 报告输出到 Allure_repo/
-// → 归档报告 → 清理环境。
+// 适用环境：Windows + Docker Desktop（docker compose v2）
 //
-// 运行前提（本机 Windows + Docker Desktop）：
-// - Docker 与 docker compose v2 可用（jenkins 服务/进程的运行账号能调到 docker）；
-// - 本文件全部使用 bat（cmd）步骤，无需 Linux shell。
+// Jenkins 一次性配置（与仓库无关，需在 Jenkins 界面完成）：
+//   1. 安装插件：Allure Jenkins Plugin、HTML Publisher Plugin
+//   2. Manage Jenkins → Tools → Allure Commandline → 自动安装
+//   3. 新建 Pipeline 任务，SCM 指向本仓库，Script Path 填 Jenkinsfile
+//
+// 流程：构建镜像 → 启动 ServeRest → 冒烟 → 全量用例并生成报告数据 → 发布报告
 
 pipeline {
     agent any
 
     triggers {
-        // 自动构建：推荐在 Jenkins 里给仓库配 GitHub webhook（推送即触发）；
-        // pollSCM 是没配 webhook 时的兜底，每 5 分钟检查一次远端是否有新提交。
+        // 无 webhook 时每 5 分钟检查一次远端新提交
         pollSCM('H/5 * * * *')
     }
 
@@ -22,63 +22,73 @@ pipeline {
         disableConcurrentBuilds()
     }
 
-    environment {
-        // 报告输出目录：Jenkins 工作区（仓库检出目录）下的 Allure_repo
-        REPORT_DIR = "${WORKSPACE}/Allure_repo"
-    }
-
     stages {
-        stage('启动 ServeRest') {
+        stage('Build Image') {
             steps {
-                // 从干净状态开始：清掉上一轮遗留的容器（失败也继续）
+                // tests 服务带 profile，构建时需显式启用
+                bat 'docker compose --profile tests build'
+            }
+        }
+
+        stage('Start ServeRest') {
+            steps {
                 bat 'docker compose down --remove-orphans || exit /b 0'
                 bat 'docker compose up -d --wait'
             }
         }
 
-        stage('执行测试并生成报告') {
+        stage('Smoke Tests') {
             steps {
-                // 预建报告目录（%REPORT_DIR% 来自 environment 块）
-                bat 'if not exist "%REPORT_DIR%" mkdir "%REPORT_DIR%"'
+                // 冒烟只做连通性门禁，不产出报告数据
+                bat 'docker compose --profile tests run --rm tests -m smoke -q'
+            }
+        }
 
-                // Docker Desktop 的 bind mount 由容器内非 root 用户写入时，
-                // 放开宿主机目录 ACL（Everyone 完全控制），失败仅告警不中断。
-                // 注意：cmd 里的 % 本身要写成 %%，SID 写法会被转义，这里改用通配：
-                bat 'icacls "%REPORT_DIR%" /grant *S-1-1-0:(OI)(CI)F /T /Q >nul 2>&1 || exit /b 0'
+        stage('Full Test Suite') {
+            steps {
+                // 清空上一轮报告，避免结果累积
+                bat 'if exist Allure_repo rmdir /s /q Allure_repo'
+                bat 'mkdir Allure_repo\allure-results'
 
-                // tests 服务带 profile，需显式 --profile tests 才运行；
-                // -v 把工作区 Allure_repo 挂载进容器，报告落在 Jenkins 工作区。
-                bat 'docker compose --profile tests run --rm -v "%REPORT_DIR%:/app/reports" tests --html=/app/reports/pytest_report.html --self-contained-html -q'
+                // 放开挂载目录 ACL，容器内非 root 用户才可写入（失败仅告警）
+                bat 'icacls "%cd%\Allure_repo" /grant *S-1-1-0:(OI)(CI)F /T /Q >nul 2>&1 || exit /b 0'
+
+                // 全量用例（冒烟 → 正向 → 反向，顺序由 pytest.ini testpaths 保证），
+                // 同时产出 Allure 原始结果与 pytest-html 报告
+                bat 'docker compose --profile tests run --rm -v "%cd%\Allure_repo:/app/reports" tests -q --alluredir=/app/reports/allure-results --html=/app/reports/report.html --self-contained-html'
+            }
+        }
+
+        stage('Publish Reports') {
+            steps {
+                // 构建页会出现 Allure Report 链接
+                allure([
+                    includeProperties: false,
+                    properties: [],
+                    reportBuildPolicy: 'ALWAYS',
+                    results: [[path: 'Allure_repo/allure-results']]
+                ])
+
+                publishHTML([
+                    allowMissing: false,
+                    alwaysLinkToLastBuild: true,
+                    keepAll: true,
+                    reportDir: 'Allure_repo',
+                    reportFiles: 'report.html',
+                    reportName: 'ServeRest Test Report'
+                ])
+
+                archiveArtifacts artifacts: 'Allure_repo/report.html',
+                    fingerprint: true,
+                    allowEmptyArchive: true
             }
         }
     }
 
     post {
         always {
-            // 无论测试是否通过都清理环境（失败也继续，保证归档/发布报告能执行）
+            // 无论成败都清理容器环境
             bat 'docker compose down --remove-orphans || exit /b 0'
-
-            // 归档报告（失败时 pytest-html 仍会生成报告；没生成也不报错）
-            archiveArtifacts artifacts: 'Allure_repo/pytest_report.html',
-                fingerprint: true,
-                allowEmptyArchive: true
-
-            // 在 Jenkins 构建页面发布图形化报告（需要安装 HTML Publisher 插件）。
-            // 插件缺失时只打印提示，不影响构建结果。
-            script {
-                try {
-                    publishHTML(target: [
-                        allowMissing: true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'Allure_repo',
-                        reportFiles: 'pytest_report.html',
-                        reportName: 'ServeRest 测试报告'
-                    ])
-                } catch (Exception e) {
-                    echo "未安装 HTML Publisher 插件，跳过报告发布（报告仍已归档）：${e}"
-                }
-            }
         }
     }
 }
