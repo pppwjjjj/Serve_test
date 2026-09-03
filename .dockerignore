@@ -1,0 +1,28 @@
+# 版本控制与本地虚拟环境：不需要进镜像
+.git/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# 环境配置：.env 含本机账号信息，禁止进镜像（CI 用环境变量注入）
+.env
+.env.example
+
+# 测试报告与覆盖率：由主机/Jenkins 挂载收集，不进镜像
+allure-results/
+allure-report/
+.coverage
+htmlcov/
+
+# 编排与 CI 文件：由主机上的 docker compose / Jenkins 读取，不进镜像
+docker-compose.yml
+docker-compose.override.yml
+Jenkinsfile
+Dockerfile
+.dockerignore
+
+# IDE
+.idea/
+.vscode/

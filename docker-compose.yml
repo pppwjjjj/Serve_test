@@ -1,6 +1,7 @@
-# ServeRest 本地测试环境编排
-# paulogoncalvesbh/serverest 镜像自带 MongoDB 与预置数据，单服务即可；
-# 重建容器（docker compose down && docker compose up -d）即恢复初始数据。
+# ServeRest 测试环境编排（两个容器，同一网络）
+# - serverest：被测服务，镜像自带 MongoDB 与预置数据；
+# - tests：测试框架容器，由根目录 Dockerfile 构建，默认不随 up 启动（profile）。
+# 重建容器（docker compose down && docker compose up -d --wait）即恢复初始数据。
 services:
   serverest:
     image: paulogoncalvesbh/serverest:latest
@@ -14,3 +15,18 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+
+  # 测试框架容器：由根目录 Dockerfile 构建。
+  # 加了 profiles: ["tests"]，所以默认 `docker compose up -d --wait` 只启动
+  # ServeRest；要跑测试必须显式带 --profile tests 执行 run（一次性任务）。
+  tests:
+    profiles: ["tests"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      serverest:
+        condition: service_healthy
+    environment:
+      # 容器内不能访问 localhost:3000，必须走 compose 服务名
+      SERVEREST_BASE_URL: http://serverest:3000
