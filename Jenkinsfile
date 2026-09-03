@@ -8,6 +8,7 @@
 //   3. 新建 Pipeline 任务，SCM 指向本仓库，Script Path 填 Jenkinsfile
 //
 // 流程：构建镜像 → 启动 ServeRest → 冒烟 → 全量用例并生成报告数据 → 发布报告
+//       → 归档本次结果，仅保留最近 3 次全量报告
 
 pipeline {
     agent any
@@ -46,8 +47,9 @@ pipeline {
 
         stage('Full Test Suite') {
             steps {
-                // 清空上一轮报告，避免结果累积
-                bat 'if exist Allure_repo rmdir /s /q Allure_repo'
+                // 只清空本次要写入的结果目录，不删除 history 中已归档的历史报告
+                bat 'if not exist Allure_repo mkdir Allure_repo'
+                bat 'if exist Allure_repo\\allure-results rmdir /s /q Allure_repo\\allure-results'
                 bat 'mkdir Allure_repo\\allure-results'
 
                 // 放开挂载目录 ACL，容器内非 root 用户才可写入（失败仅告警）
@@ -69,6 +71,18 @@ pipeline {
                     results: [[path: 'Allure_repo/allure-results']]
                 ])
 
+            }
+        }
+
+        stage('Retain Recent Reports') {
+            steps {
+                // 归档本次全量结果并轮转保留：
+                // history\1 为最新一次，history\2 / history\3 依次更旧，超过 3 次删除最旧
+                bat 'if not exist Allure_repo\\history mkdir Allure_repo\\history'
+                bat 'if exist Allure_repo\\history\\3 rmdir /s /q Allure_repo\\history\\3'
+                bat 'if exist Allure_repo\\history\\2 move /y Allure_repo\\history\\2 Allure_repo\\history\\3'
+                bat 'if exist Allure_repo\\history\\1 move /y Allure_repo\\history\\1 Allure_repo\\history\\2'
+                bat 'if exist Allure_repo\\allure-results move /y Allure_repo\\allure-results Allure_repo\\history\\1'
             }
         }
     }
