@@ -1,12 +1,12 @@
-// Jenkinsfile —— ServeRest 自动化测试流水线（声明式）
+// Jenkinsfile —— ServeRest 自动化测试流水线（声明式，Windows agent 版）
 //
 // 流程：检出代码 → 启动 ServeRest → 测试容器跑全部用例（冒烟 → 正向 → 反向，
 // 顺序由 pytest.ini 的 testpaths 保证）→ pytest-html 报告输出到 Allure_repo/
 // → 归档报告 → 清理环境。
 //
-// 运行前提（Jenkins agent）：
-// - 已安装 Docker 与 docker compose v2；
-// - agent 为 Linux（示例使用 sh；Windows agent 需把 sh 换成 bat 并调整路径变量）。
+// 运行前提（本机 Windows + Docker Desktop）：
+// - Docker 与 docker compose v2 可用（jenkins 服务/进程的运行账号能调到 docker）；
+// - 本文件全部使用 bat（cmd）步骤，无需 Linux shell。
 
 pipeline {
     agent any
@@ -30,37 +30,35 @@ pipeline {
     stages {
         stage('启动 ServeRest') {
             steps {
-                // 从干净状态开始：清掉上一轮遗留的容器
-                sh 'docker compose down --remove-orphans || true'
-                sh 'docker compose up -d --wait'
+                // 从干净状态开始：清掉上一轮遗留的容器（失败也继续）
+                bat 'docker compose down --remove-orphans || exit /b 0'
+                bat 'docker compose up -d --wait'
             }
         }
 
         stage('执行测试并生成报告') {
             steps {
-                // 预建报告目录并放开权限：容器内 tests 以非 root 用户运行，
-                // 绑定的宿主目录默认属主是 root，不放开会导致 pytest-html 写入失败。
-                sh 'mkdir -p "$REPORT_DIR" && chmod -R 777 "$REPORT_DIR"'
+                // 预建报告目录（%REPORT_DIR% 来自 environment 块）
+                bat 'if not exist "%REPORT_DIR%" mkdir "%REPORT_DIR%"'
+
+                // Docker Desktop 的 bind mount 由容器内非 root 用户写入时，
+                // 放开宿主机目录 ACL（Everyone 完全控制），失败仅告警不中断。
+                // 注意：cmd 里的 % 本身要写成 %%，SID 写法会被转义，这里改用通配：
+                bat 'icacls "%REPORT_DIR%" /grant *S-1-1-0:(OI)(CI)F /T /Q >nul 2>&1 || exit /b 0'
 
                 // tests 服务带 profile，需显式 --profile tests 才运行；
-                // -v 把工作区 Allure_repo 挂载进容器，--html 指向挂载点，
-                // 生成的单文件报告会落在 Jenkins 工作区。
-                sh '''
-                    docker compose --profile tests run --rm \
-                      -v "${REPORT_DIR}:/app/reports" \
-                      tests \
-                      --html=/app/reports/pytest_report.html \
-                      --self-contained-html \
-                      -q
-                '''
+                // -v 把工作区 Allure_repo 挂载进容器，报告落在 Jenkins 工作区。
+                bat 'docker compose --profile tests run --rm -v "%REPORT_DIR%:/app/reports" tests --html=/app/reports/pytest_report.html --self-contained-html -q'
             }
         }
     }
 
     post {
         always {
-            // 无论测试是否通过都清理环境，并归档报告（失败时 pytest-html 仍会生成报告）
-            sh 'docker compose down --remove-orphans || true'
+            // 无论测试是否通过都清理环境（失败也继续，保证归档/发布报告能执行）
+            bat 'docker compose down --remove-orphans || exit /b 0'
+
+            // 归档报告（失败时 pytest-html 仍会生成报告；没生成也不报错）
             archiveArtifacts artifacts: 'Allure_repo/pytest_report.html',
                 fingerprint: true,
                 allowEmptyArchive: true
