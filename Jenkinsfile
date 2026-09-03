@@ -63,7 +63,7 @@ pipeline {
             sh 'docker compose down --remove-orphans || true'
             archiveArtifacts artifacts: 'Allure_repo/pytest_report.html',
                 fingerprint: true,
-                allowMissingArchive: true
+                allowEmptyArchive: true
 
             // 在 Jenkins 构建页面发布图形化报告（需要安装 HTML Publisher 插件）。
             // 插件缺失时只打印提示，不影响构建结果。
