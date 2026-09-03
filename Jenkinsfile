@@ -3,7 +3,7 @@
 // 适用环境：Windows + Docker Desktop（docker compose v2）
 //
 // Jenkins 一次性配置（与仓库无关，需在 Jenkins 界面完成）：
-//   1. 安装插件：Allure Jenkins Plugin、HTML Publisher Plugin
+//   1. 安装插件：Allure Jenkins Plugin
 //   2. Manage Jenkins → Tools → Allure Commandline → 自动安装
 //   3. 新建 Pipeline 任务，SCM 指向本仓库，Script Path 填 Jenkinsfile
 //
@@ -48,14 +48,14 @@ pipeline {
             steps {
                 // 清空上一轮报告，避免结果累积
                 bat 'if exist Allure_repo rmdir /s /q Allure_repo'
-                bat 'mkdir Allure_repo\allure-results'
+                bat 'mkdir Allure_repo\\allure-results'
 
                 // 放开挂载目录 ACL，容器内非 root 用户才可写入（失败仅告警）
-                bat 'icacls "%cd%\Allure_repo" /grant *S-1-1-0:(OI)(CI)F /T /Q >nul 2>&1 || exit /b 0'
+                bat 'icacls "%cd%\\Allure_repo" /grant *S-1-1-0:(OI)(CI)F /T /Q >nul 2>&1 || exit /b 0'
 
                 // 全量用例（冒烟 → 正向 → 反向，顺序由 pytest.ini testpaths 保证），
-                // 同时产出 Allure 原始结果与 pytest-html 报告
-                bat 'docker compose --profile tests run --rm -v "%cd%\Allure_repo:/app/reports" tests -q --alluredir=/app/reports/allure-results --html=/app/reports/report.html --self-contained-html'
+                // 产出 Allure 原始结果
+                bat 'docker compose --profile tests run --rm -v "%cd%\\Allure_repo:/app/reports" tests -q --alluredir=/app/reports/allure-results'
             }
         }
 
@@ -69,18 +69,6 @@ pipeline {
                     results: [[path: 'Allure_repo/allure-results']]
                 ])
 
-                publishHTML([
-                    allowMissing: false,
-                    alwaysLinkToLastBuild: true,
-                    keepAll: true,
-                    reportDir: 'Allure_repo',
-                    reportFiles: 'report.html',
-                    reportName: 'ServeRest Test Report'
-                ])
-
-                archiveArtifacts artifacts: 'Allure_repo/report.html',
-                    fingerprint: true,
-                    allowEmptyArchive: true
             }
         }
     }
