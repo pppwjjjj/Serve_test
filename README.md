@@ -31,7 +31,11 @@
 - `docker-compose.yml`：编排 serverest 容器。镜像自带 MongoDB 与预置数据，单服务即可。
 - `.gitignore`：忽略 `.env`、虚拟环境、测试报告与缓存（保留 `.env.example`）。
 
-启动服务：`docker compose up -d --wait`
+快速启动：
+
+- 启动服务：`docker compose up -d --wait`（需已安装 Docker Desktop / Docker Compose v2；`--wait` 会等服务健康后再返回）
+- 运行测试：在项目根目录、且已执行 `pip install -r requirements.txt` 的环境下，运行 `pytest --alluredir=allure-results`，产出 Allure 原始报告数据
+- 查看报告：`allure serve allure-results`（需另装 Allure CLI；未安装也可正常跑测试）
 
 注意：若 3000 端口已被手动 `docker run` 的容器占用（如 `sad_kepler`），先执行 `docker stop <容器名>` 再启动 compose。
 
